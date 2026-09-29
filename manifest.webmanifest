@@ -1,0 +1,22 @@
+{
+  "name": "Bolsillo · gastos de la familia",
+  "short_name": "Bolsillo",
+  "description": "Apunta gastos en efectivo en tres toques, aunque no haya conexión.",
+  "lang": "es",
+  "start_url": "./?accion=nuevo",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F2C4C",
+  "theme_color": "#0f2c4c",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-1024.png", "sizes": "1024x1024", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Nuevo gasto", "short_name": "Gasto", "url": "./?accion=nuevo", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Resumen del mes", "short_name": "Resumen", "url": "./?accion=resumen", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

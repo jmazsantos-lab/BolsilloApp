@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Bolsillo</title>
+  <meta name="description" content="Registro rápido de gastos en efectivo para la familia, con exportación a Patrimonio Familiar.">
+  <meta name="theme-color" content="#f5f7fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1520" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Bolsillo">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash-1320x2868.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash-1206x2622.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash-1290x2796.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash-1179x2556.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash-1284x2778.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash-1170x2532.png">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Animación de arranque: la moneda salta y cae dentro del bolsillo (≈1 s).
+       El primer fotograma es idéntico a la pantalla de arranque de iOS, así no hay salto. */
+    #arranque {
+      position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #1B4C7E, #0F2C4C 55%, #081A2E);
+      transition: opacity .3s ease, transform .3s ease;
+    }
+    #arranque svg { width: 56vmin; max-width: 420px; height: auto; overflow: visible; }
+    #arranque #moneda-g { transform-box: fill-box; transform-origin: center; animation: salto .78s cubic-bezier(.3,.7,.4,1) .08s both; }
+    #arranque #bolsillo-g { transform-box: fill-box; transform-origin: 50% 0; animation: recibe .3s ease-out .56s both; }
+    #arranque .nombre {
+      margin-top: 2vmin; color: #fff; font: 700 28px/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      letter-spacing: .02em; opacity: 0; animation: nombre .35s ease-out .5s both;
+    }
+    #arranque.fuera { opacity: 0; transform: scale(1.04); pointer-events: none; }
+    @keyframes salto {
+      0%   { transform: translateY(0) rotate(0); }
+      40%  { transform: translateY(-85%) rotate(-14deg); }
+      70%  { transform: translateY(52%) rotate(8deg); }
+      84%  { transform: translateY(38%) rotate(0); }
+      100% { transform: translateY(42%) rotate(0); }
+    }
+    @keyframes recibe {
+      0% { transform: scale(1, 1); } 45% { transform: scale(1.04, .95); } 100% { transform: scale(1, 1); }
+    }
+    @keyframes nombre { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      #arranque #moneda-g, #arranque #bolsillo-g { animation: none; }
+      #arranque .nombre { animation-duration: .01s; }
+    }
+  </style>
+</head>
+<body>
+  <div id="arranque" role="presentation"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" aria-hidden="true"> <defs> <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1"> <stop offset="0" stop-color="#1B4C7E"/> <stop offset="0.55" stop-color="#0F2C4C"/> <stop offset="1" stop-color="#081A2E"/> </linearGradient> <radialGradient id="brillo" cx="0.3" cy="0.15" r="0.9"> <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/> <stop offset="0.6" stop-color="#ffffff" stop-opacity="0"/> </radialGradient> <linearGradient id="moneda" x1="0" y1="0" x2="0" y2="1"> <stop offset="0" stop-color="#FFB45C"/> <stop offset="1" stop-color="#E4622C"/> </linearGradient> <linearGradient id="bolsillo" x1="0" y1="0" x2="0" y2="1"> <stop offset="0" stop-color="#FFFFFF"/> <stop offset="1" stop-color="#DCE6F2"/> </linearGradient> <filter id="sombra" x="-20%" y="-20%" width="140%" height="150%"> <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#020a14" flood-opacity="0.45"/> </filter> </defs> <g id="marca"> <g id="moneda-g"> <circle cx="512" cy="330" r="128" fill="url(#moneda)"/> <circle cx="512" cy="330" r="98" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="12"/> <path d="M470 268 a86 86 0 0 1 76 -18" fill="none" stroke="#FFFFFF" stroke-opacity="0.8" stroke-width="16" stroke-linecap="round"/> </g> <g id="bolsillo-g" filter="url(#sombra)"> <path d="M248 392 H776 L758 668 Q756 700 728 716 L528 818 Q512 826 496 818 L296 716 Q268 700 266 668 Z" fill="url(#bolsillo)"/> <path d="M248 392 H776 L772 452 H252 Z" fill="#C9D6E6"/> <path d="M292 488 H732 L718 660 Q716 680 698 690 L520 780 Q512 784 504 780 L326 690 Q308 680 306 660 Z" fill="none" stroke="#0F2C4C" stroke-opacity="0.28" stroke-width="10" stroke-dasharray="26 18" stroke-linecap="round"/> </g> </g> </svg> <div class="nombre">Bolsillo</div></div>
+  <script>
+    // Solo al abrir la app (no al volver a ella desde segundo plano ni en recargas de la misma sesión)
+    (function () {
+      var el = document.getElementById('arranque');
+      var visto = false;
+      try { visto = sessionStorage.getItem('bolsillo-arranque') === '1'; sessionStorage.setItem('bolsillo-arranque', '1'); } catch (e) {}
+      var reducido = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (visto) { el.remove(); return; }
+      setTimeout(function () { el.classList.add('fuera'); }, reducido ? 350 : 1000);
+      setTimeout(function () { el.remove(); }, reducido ? 700 : 1320);
+    })();
+  </script>
+  <div id="app"></div>
+  <noscript>Bolsillo necesita JavaScript.</noscript>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
