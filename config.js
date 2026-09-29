@@ -6,5 +6,5 @@
 // y pertenecer al hogar.
 // Si lo dejas vacío, la app funciona solo en el móvil (modo local).
 // =====================================================================
-export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_URL = 'https://ybujlbwnipwmbrzlbxum.supabase.co/rest/v1/';
+export const SUPABASE_ANON_KEY = 'sb_publishable_IZ3F9Keu5NwFY20LvztVYQ_wdmTQQJ8';
