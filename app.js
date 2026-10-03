@@ -17,7 +17,7 @@ const SUPABASE_URL = (() => {
 })();
 const SUPABASE_ANON_KEY = String(CLAVE_CONFIG || '').trim().replace(/^["']|["']$/g, '');
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const MONEDAS = ['EUR', 'USD', 'MXN', 'CUP'];
 const DECIMALES = { EUR: 2, USD: 2, MXN: 2, CUP: 0 };
 const SIMBOLO = { EUR: '€', USD: 'US$', MXN: 'MX$', CUP: 'CUP' };
@@ -115,7 +115,8 @@ async function obtenerCliente() {
   if (cliente) return cliente;
   try {
     // Librería incluida en la app (vendor/): no depende de internet para cargarse.
-    const { createClient } = await import('./vendor/supabase.js');
+    // Si ese fichero no está publicado, se usa la copia del CDN (necesita red solo la primera vez).
+    const { createClient } = await cargarLibreria();
     cliente = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, storageKey: 'bolsillo-auth', detectSessionInUrl: false },
       global: { fetch: fetchConLimite },
@@ -126,6 +127,18 @@ async function obtenerCliente() {
     });
     return cliente;
   } catch (err) { return null; } // si algo falla, se sigue en local y se reintenta más tarde
+}
+
+async function cargarLibreria() {
+  const fuentes = ['./vendor/supabase.js', './supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm'];
+  let ultimoError = null;
+  for (const f of fuentes) {
+    try {
+      const m = await import(f);
+      if (m && typeof m.createClient === 'function') return m;
+    } catch (err) { ultimoError = err; }
+  }
+  throw ultimoError || new Error('No se pudo cargar la librería de Supabase');
 }
 
 // Con una red lenta o «conectada sin internet», una petición puede quedarse colgada.
@@ -1564,6 +1577,22 @@ document.addEventListener('keydown', (e) => {
 /* =====================================================================
    ARRANQUE
    ===================================================================== */
+// iPhone: al cerrar el teclado (p. ej. tras buscar en Movimientos) la vista puede quedarse
+// desplazada y dejar una banda oscura abajo. Se recoloca en cuanto se cierra el teclado.
+function recolocarVista() {
+  const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  window.scrollTo(0, Math.min(window.scrollY, max));
+}
+document.addEventListener('focusout', (e) => {
+  if (!/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  setTimeout(() => { if (!/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) recolocarVista(); }, 150);
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (window.visualViewport.height >= window.innerHeight - 1) setTimeout(recolocarVista, 50);
+  });
+}
+
 // Al volver la red (o la app), se sube lo pendiente y se baja lo nuevo sin tocar nada.
 function reconectar() { fallosSeguidos = 0; programarSync(300); }
 window.addEventListener('online', reconectar);

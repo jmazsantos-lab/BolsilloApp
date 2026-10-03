@@ -1,6 +1,6 @@
 // Service worker: la app abre y funciona sin conexión.
 // Al publicar una versión nueva, sube el número de VERSION para renovar la caché.
-const VERSION = 'bolsillo-v1.3.0';
+const VERSION = 'bolsillo-v1.3.1';
 
 // Lo imprescindible para abrir y usar la app sin red (incluida la librería de Supabase).
 const ESENCIAL = [
@@ -42,6 +42,18 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   // La base de datos nunca se sirve desde caché
   if (url.hostname.endsWith('supabase.co') || url.hostname.endsWith('supabase.in')) return;
+  // Copia de reserva de la librería desde el CDN (solo si falta vendor/supabase.js): caché primero
+  if (url.hostname === 'cdn.jsdelivr.net') {
+    e.respondWith((async () => {
+      const c = await caches.open(VERSION);
+      const hit = await c.match(e.request);
+      if (hit) return hit;
+      const r = await fetch(e.request);
+      if (r.ok) c.put(e.request, r.clone());
+      return r;
+    })());
+    return;
+  }
   if (url.origin !== self.location.origin) return;
 
   // Ficheros propios: se sirven de caché al instante (aunque no haya red o vaya muy lenta)
