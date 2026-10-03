@@ -17,7 +17,7 @@ const SUPABASE_URL = (() => {
 })();
 const SUPABASE_ANON_KEY = String(CLAVE_CONFIG || '').trim().replace(/^["']|["']$/g, '');
 
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 const MONEDAS = ['EUR', 'USD', 'MXN', 'CUP'];
 const DECIMALES = { EUR: 2, USD: 2, MXN: 2, CUP: 0 };
 const SIMBOLO = { EUR: '€', USD: 'US$', MXN: 'MX$', CUP: 'CUP' };
@@ -127,6 +127,23 @@ async function obtenerCliente() {
     });
     return cliente;
   } catch (err) { return null; } // si algo falla, se sigue en local y se reintenta más tarde
+}
+
+// Enlace MCP que se pega en Claude: la función de Supabase + el código personal
+const urlConector = (token) => `${SUPABASE_URL}/functions/v1/bolsillo-mcp/${token}`;
+
+// Estado del conector (para Ajustes). Si Supabase aún no tiene el SQL del conector, no muestra nada raro.
+async function consultarConector() {
+  if (E.modo !== 'nube' || !navigator.onLine) return;
+  const c = await obtenerCliente();
+  if (!c) return;
+  try {
+    const r = await c.rpc('estado_conector_claude');
+    if (r.error || !r.data) return;
+    const antes = ui.conectorActivo;
+    ui.conectorActivo = !!r.data.activo; ui.conectorUso = r.data.ultimo_uso;
+    if (antes !== ui.conectorActivo && ui.pestana === 'ajustes') render();
+  } catch (e) { /* nada */ }
 }
 
 async function cargarLibreria() {
@@ -873,6 +890,19 @@ function vistaHoja() {
       ${fila(`3 · Tu código personal (${esc(E.yo)})`, h.token, 'token')}
       <p class="mini">Pega cada valor en el paso correspondiente de la guía. El código solo permite añadir gastos a tu nombre en este hogar.</p>
       <button class="btn bloque" style="margin-top:8px" data-accion="cerrar-hoja">Hecho</button>`;
+  } else if (h.tipo === 'conector') {
+    const enlace = urlConector(h.token);
+    cuerpo = `<h3>Tu enlace para Claude</h3>
+      <div class="aviso">Cópialo ahora: por seguridad no se vuelve a mostrar. Quien tenga este enlace puede ver y apuntar gastos del hogar; no lo compartas.</div>
+      <div class="campo"><label>Enlace del conector (${esc(E.yo)})</label>
+        <div style="display:flex;gap:8px"><input class="input num" readonly value="${esc(enlace)}" style="font-size:12px">
+        <button class="btn sec" data-accion="copiar" data-v="conector">Copiar</button></div></div>
+      <ol class="mini" style="padding-left:18px;margin:8px 0">
+        <li>En Claude: <strong>Ajustes → Conectores → Añadir conector personalizado</strong>.</li>
+        <li>Nombre: <strong>Bolsillo</strong>. URL: pega el enlace. <strong>Añadir</strong>.</li>
+        <li>En un chat nuevo, activa Bolsillo en el menú de herramientas y pregunta.</li>
+      </ol>
+      <button class="btn bloque" style="margin-top:8px" data-accion="cerrar-hoja">Hecho</button>`;
   } else if (h.tipo === 'exportado') {
     cuerpo = `<h3>Exportación lista</h3>
       <p class="sub">En Patrimonio Familiar: Movimientos → «Importar gastos de Bolsillo» → elige este fichero.</p>
@@ -1226,6 +1256,16 @@ function vistaAjustes() {
         : '<p class="mini">Disponible cuando la app está conectada a Supabase.</p>'}
     </div>
 
+    <div class="etiqueta-sec">Conector de Claude</div>
+    <div class="tarjeta">
+      <p class="sub">Pregúntale a Claude por vuestros gastos («¿cuánto llevamos en restaurantes este mes?») o pídele que apunte, corrija o analice. Cada persona genera su propio enlace.</p>
+      ${E.modo === 'nube'
+        ? `<button class="btn bloque" data-accion="crear-conector">${ui.conectorActivo ? 'Generar un enlace nuevo' : 'Conectar con Claude'}</button>
+           ${ui.conectorActivo ? '<button class="btn sec bloque" style="margin-top:8px" data-accion="revocar-conector">Desconectar Claude</button>' : ''}
+           <p class="mini" style="margin-top:8px">${ui.conectorActivo === undefined ? '' : ui.conectorActivo ? `Conector activo${ui.conectorUso ? ` · último uso ${esc(new Date(ui.conectorUso).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }))}` : ' · aún sin usar'}.` : 'Sin conectar.'} Generar un enlace nuevo invalida el anterior.</p>`
+        : '<p class="mini">Disponible cuando la app está conectada a Supabase.</p>'}
+    </div>
+
     <div class="etiqueta-sec">Hogar y sincronización</div>
     <div class="tarjeta">
       ${E.modo === 'nube' ? `
@@ -1434,7 +1474,7 @@ document.addEventListener('click', async (e) => {
   const a = b.dataset.accion, v = b.dataset.v;
   if (a === 'cerrar-hoja-fondo') { if (e.target === b) { ui.hoja = null; render(); } return; }
   switch (a) {
-    case 'pestana': ui.pestana = v; ui.hoja = null; if (v === 'anadir' && !ui.entrada) ui.entrada = entradaNueva(); render(); window.scrollTo(0, 0); break;
+    case 'pestana': ui.pestana = v; ui.hoja = null; if (v === 'anadir' && !ui.entrada) ui.entrada = entradaNueva(); render(); window.scrollTo(0, 0); if (v === 'ajustes') consultarConector(); break;
     case 'tecla': pulsarTecla(v); break;
     case 'moneda': ui.entrada.moneda = v; if (DECIMALES[v] === 0) ui.entrada.texto = ui.entrada.texto.split(',')[0]; render(); break;
     case 'categoria':
@@ -1488,8 +1528,25 @@ document.addEventListener('click', async (e) => {
       const r = await c.rpc('revocar_tokens_atajo');
       toast(r.error ? traducirError(r.error.message) : `Códigos revocados: ${r.data}`); break;
     }
+    case 'crear-conector': {
+      if (ui.conectorActivo && !confirm('El enlace actual dejará de funcionar y tendrás que pegar el nuevo en Claude. ¿Continuar?')) break;
+      const c = await obtenerCliente();
+      if (!c || !navigator.onLine) { toast('Necesitas conexión para conectar con Claude'); break; }
+      const r = await c.rpc('crear_token_claude');
+      if (r.error) { toast(/crear_token_claude|function/i.test(r.error.message) ? 'Falta preparar Supabase: ejecuta conector_claude.sql (ver la guía)' : traducirError(r.error.message)); break; }
+      ui.conectorActivo = true; ui.conectorUso = null;
+      ui.hoja = { tipo: 'conector', token: r.data }; render(); break;
+    }
+    case 'revocar-conector': {
+      if (!confirm('Claude dejará de poder ver y apuntar gastos con tu enlace. ¿Desconectar?')) break;
+      const c = await obtenerCliente();
+      if (!c || !navigator.onLine) { toast('Necesitas conexión'); break; }
+      const r = await c.rpc('revocar_conector_claude');
+      if (r.error) { toast(traducirError(r.error.message)); break; }
+      ui.conectorActivo = false; toast('Claude desconectado'); render(); break;
+    }
     case 'copiar': {
-      const valores = { url: `${SUPABASE_URL}/rest/v1/rpc/registrar_gasto_atajo`, apikey: SUPABASE_ANON_KEY, token: ui.hoja && ui.hoja.token };
+      const valores = { url: `${SUPABASE_URL}/rest/v1/rpc/registrar_gasto_atajo`, apikey: SUPABASE_ANON_KEY, token: ui.hoja && ui.hoja.token, conector: ui.hoja && ui.hoja.token ? urlConector(ui.hoja.token) : '' };
       try { await navigator.clipboard.writeText(valores[v]); toast('Copiado'); }
       catch (err) { toast('No se pudo copiar: mantén pulsado el campo y copia'); }
       break;

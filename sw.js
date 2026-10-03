@@ -1,6 +1,6 @@
 // Service worker: la app abre y funciona sin conexión.
 // Al publicar una versión nueva, sube el número de VERSION para renovar la caché.
-const VERSION = 'bolsillo-v1.3.1';
+const VERSION = 'bolsillo-v1.4.0';
 
 // Lo imprescindible para abrir y usar la app sin red (incluida la librería de Supabase).
 const ESENCIAL = [
