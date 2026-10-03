@@ -5,9 +5,19 @@
    - Hogar compartido: cada uno ve sus gastos y los del otro.
    - Exporta cada mes un JSON que Patrimonio Familiar sabe importar.
    ===================================================================== */
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+import { SUPABASE_URL as URL_CONFIG, SUPABASE_ANON_KEY as CLAVE_CONFIG } from './config.js';
 
-const VERSION = '1.2.0';
+// Limpia lo pegado en config.js: quita espacios, comillas, «/» final y rutas como /rest/v1 o /auth/v1.
+// Así un error típico («invalid path specified in request URL») no vuelve a ocurrir.
+const SUPABASE_URL = (() => {
+  let u = String(URL_CONFIG || '').trim().replace(/^["']|["']$/g, '');
+  if (!u) return '';
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  try { return new URL(u).origin; } catch (e) { return u.replace(/\/+$/, ''); }
+})();
+const SUPABASE_ANON_KEY = String(CLAVE_CONFIG || '').trim().replace(/^["']|["']$/g, '');
+
+const VERSION = '1.3.0';
 const MONEDAS = ['EUR', 'USD', 'MXN', 'CUP'];
 const DECIMALES = { EUR: 2, USD: 2, MXN: 2, CUP: 0 };
 const SIMBOLO = { EUR: '€', USD: 'US$', MXN: 'MX$', CUP: 'CUP' };
@@ -104,12 +114,40 @@ async function obtenerCliente() {
   if (!hayNube()) return null;
   if (cliente) return cliente;
   try {
-    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+    // Librería incluida en la app (vendor/): no depende de internet para cargarse.
+    const { createClient } = await import('./vendor/supabase.js');
     cliente = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true, storageKey: 'bolsillo-auth' },
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: 'bolsillo-auth', detectSessionInUrl: false },
+      global: { fetch: fetchConLimite },
+    });
+    // Solo un cierre de sesión real (contraseña cambiada, sesión revocada) pide volver a entrar.
+    cliente.auth.onAuthStateChange((evento) => {
+      if (evento === 'SIGNED_OUT' && E.modo === 'nube' && E.usuario) ponerEstadoRed('sesion');
     });
     return cliente;
-  } catch (err) { return null; } // sin conexión y sin la librería en caché: se sigue en local
+  } catch (err) { return null; } // si algo falla, se sigue en local y se reintenta más tarde
+}
+
+// Con una red lenta o «conectada sin internet», una petición puede quedarse colgada.
+// Se corta a los 20 s para no bloquear la sincronización.
+function fetchConLimite(url, opciones = {}) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  if (opciones.signal) opciones.signal.addEventListener('abort', () => ctrl.abort());
+  return fetch(url, { ...opciones, signal: ctrl.signal }).finally(() => clearTimeout(t));
+}
+
+// Si renovar la sesión se queda esperando (red muy lenta), no se bloquea la app.
+const conLimite = (promesa, ms = 10000) => Promise.race([
+  promesa, new Promise((_, ko) => setTimeout(() => ko(new Error('timeout de red')), ms)),
+]);
+
+// ¿El fallo es por falta de red (reintentar en silencio) o un error real?
+function esErrorDeRed(err) {
+  if (!err) return false;
+  if (!navigator.onLine) return true;
+  const m = `${err.name || ''} ${err.message || ''} ${err.code || ''} ${err.status ?? ''}`;
+  return /fetch|network|abort|timeout|timed out|load failed|conexi|offline|Retryable|ECONN|ENOTFOUND|\b0\b|50[234]/i.test(m);
 }
 
 const CLAVES_TABLA = { gastos: ['id'], categorias: ['id'], tasas: ['hogar_id', 'periodo', 'moneda'], miembros: ['hogar_id', 'user_id'] };
@@ -151,18 +189,28 @@ const pendiente = (tabla, f) => E.cola.some(c => c.tabla === tabla && c.clave ==
 let sincronizando = false;
 let temporizadorSync = null;
 let estadoRed = { tipo: 'ok', texto: '' };
+let fallosSeguidos = 0;
 function programarSync(ms = 1500) { clearTimeout(temporizadorSync); temporizadorSync = setTimeout(sincronizar, ms); }
+// Reintentos cada vez más espaciados: 5 s, 10 s, 20 s, 40 s… hasta 2 minutos.
+function reintentarMasTarde() {
+  fallosSeguidos++;
+  programarSync(Math.min(120000, 5000 * 2 ** Math.min(fallosSeguidos - 1, 5)));
+}
 
 async function sincronizar() {
   if (E.modo !== 'nube' || !E.hogar || sincronizando) return;
   if (!navigator.onLine) { ponerEstadoRed('sinred'); return; }
   const c = await obtenerCliente();
-  if (!c) { ponerEstadoRed('sinred'); return; }
+  if (!c) { ponerEstadoRed('sinred'); reintentarMasTarde(); return; }
   sincronizando = true; ponerEstadoRed('sincronizando');
   let cambios = false;
+  let reintentar = false;
   try {
-    const { data: ses } = await c.auth.getSession();
+    const { data: ses, error: errSes } = await conLimite(c.auth.getSession());
+    // Sin red, renovar la sesión falla: no es que haya caducado. Se reintenta luego.
+    if (errSes && esErrorDeRed(errSes)) throw errSes;
     if (!ses || !ses.session) { ponerEstadoRed('sesion'); return; }
+    if (!E.usuario || E.usuario.id !== ses.session.user.id) E.usuario = { id: ses.session.user.id, email: ses.session.user.email };
     // 1) Subir lo pendiente, por lotes y por tabla (primero categorías: los gastos las referencian)
     for (const tabla of ['categorias', 'tasas', 'gastos', 'miembros']) {
       const lote = E.cola.filter(x => x.tabla === tabla);
@@ -197,14 +245,18 @@ async function sincronizar() {
     E.ultimaSync = new Date().toISOString();
     persistir();
     if (E.migracion) setTimeout(migrarPendiente, 0);
+    fallosSeguidos = 0;
     ponerEstadoRed(E.cola.length ? 'pendiente' : 'ok');
+    if (!canal) suscribirTiempoReal();
   } catch (err) {
-    ponerEstadoRed('error', err && err.message);
+    ponerEstadoRed(esErrorDeRed(err) ? 'sinred' : 'error', err && err.message);
+    reintentar = true;
   } finally {
     sincronizando = false;
     if (cambios) render();
     else pintarEstadoRed();
-    if (E.cola.length && navigator.onLine && estadoRed.tipo !== 'error') programarSync(3000);
+    if (reintentar) reintentarMasTarde();
+    else if (E.cola.length && navigator.onLine) programarSync(3000);
   }
 }
 
@@ -236,8 +288,15 @@ async function suscribirTiempoReal() {
         }
       });
     });
-    canal.subscribe();
-  } catch (err) { /* el tiempo real es un extra: la sincronización periódica cubre el resto */ }
+    canal.subscribe((estado) => {
+      // Al (re)conectarse, se baja lo que haya cambiado mientras no había tiempo real
+      if (estado === 'SUBSCRIBED') programarSync(500);
+      if (estado === 'CHANNEL_ERROR' || estado === 'TIMED_OUT' || estado === 'CLOSED') {
+        try { c.removeChannel(canal); } catch (e) { /* nada */ }
+        canal = null; // la próxima sincronización correcta vuelve a suscribirse
+      }
+    });
+  } catch (err) { canal = null; /* el tiempo real es un extra: la sincronización cubre el resto */ }
 }
 
 function ponerEstadoRed(tipo, detalle) {
@@ -254,7 +313,9 @@ function pintarEstadoRed() {
   if (E.modo !== 'nube') { el.innerHTML = `<span class="punto local"></span>Solo en este móvil`; return; }
   const n = E.cola.length;
   const clase = estadoRed.tipo === 'error' || estadoRed.tipo === 'sesion' ? 'error' : (n || estadoRed.tipo === 'sinred' ? 'pendiente' : '');
-  const texto = n && estadoRed.tipo !== 'sincronizando' ? `${n} pendiente${n === 1 ? '' : 's'} de subir` : estadoRed.texto;
+  const texto = estadoRed.tipo === 'sinred'
+    ? (n ? `Sin conexión · ${n} cambio${n === 1 ? '' : 's'} guardado${n === 1 ? '' : 's'} en el móvil` : 'Sin conexión · todo guardado en el móvil')
+    : n && estadoRed.tipo !== 'sincronizando' ? `${n} pendiente${n === 1 ? '' : 's'} de subir` : estadoRed.texto;
   el.innerHTML = `<span class="punto ${clase}"></span>${esc(texto)}`;
 }
 
@@ -1503,13 +1564,17 @@ document.addEventListener('keydown', (e) => {
 /* =====================================================================
    ARRANQUE
    ===================================================================== */
-window.addEventListener('online', () => sincronizar());
+// Al volver la red (o la app), se sube lo pendiente y se baja lo nuevo sin tocar nada.
+function reconectar() { fallosSeguidos = 0; programarSync(300); }
+window.addEventListener('online', reconectar);
 window.addEventListener('offline', () => ponerEstadoRed('sinred'));
+window.addEventListener('pageshow', (e) => { if (e.persisted) reconectar(); });
+window.addEventListener('focus', () => { if (E.modo === 'nube' && (E.cola.length || estadoRed.tipo !== 'ok')) reconectar(); });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   // Al volver a la app (quizá otro día), la captura empieza limpia y con la fecha de hoy
   if (ui.entrada && !ui.entrada.texto && E.modo) ui.entrada = entradaNueva({ moneda: ui.entrada.moneda });
-  sincronizar();
+  reconectar();
   if (E.modo) render();
 });
 setInterval(() => { if (document.visibilityState === 'visible') sincronizar(); }, 60000);
@@ -1519,25 +1584,36 @@ async function arrancar() {
   const params = new URLSearchParams(location.search);
   if (params.get('accion') === 'nuevo') ui.pestana = 'anadir';
   if (params.get('accion') === 'resumen') ui.pestana = 'stats';
+  if (E.modo === 'nube') estadoRed = navigator.onLine ? { tipo: 'sincronizando', texto: 'Conectando…' } : { tipo: 'sinred', texto: '' };
   render();
   if (E.modo === 'nube') {
     const c = await obtenerCliente();
     if (c && navigator.onLine) {
       try {
-        const { data } = await c.auth.getSession();
+        const { data, error: errSes } = await conLimite(c.auth.getSession());
+        if (errSes && esErrorDeRed(errSes)) throw errSes;
         if (data && data.session) {
           E.usuario = { id: data.session.user.id, email: data.session.user.email };
           if (!E.hogar) await cargarHogar();
           persistir(); render();
           if (E.hogar) { sincronizar(); suscribirTiempoReal(); }
         } else if (E.usuario && E.hogar) {
-          ponerEstadoRed('sesion'); // se sigue trabajando en local hasta volver a entrar
+          // Sin red no se puede renovar la sesión: no es que haya caducado
+          if (navigator.onLine) ponerEstadoRed('sesion'); else ponerEstadoRed('sinred');
+          if (navigator.onLine) reintentarMasTarde();
         }
-      } catch (err) { ponerEstadoRed('sinred'); }
-    } else ponerEstadoRed('sinred');
+      } catch (err) { ponerEstadoRed('sinred'); reintentarMasTarde(); }
+    } else { ponerEstadoRed('sinred'); if (E.hogar) reintentarMasTarde(); }
   }
+  // Pide al sistema que no borre los datos del móvil para liberar espacio
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* nada */ }
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    const habiaVersion = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+    // Versión nueva descargada: se ofrece recargar (sin perder lo que se esté escribiendo)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (habiaVersion) toast('Bolsillo se ha actualizado', 'Recargar', () => location.reload());
+    });
   }
 }
 arrancar();
